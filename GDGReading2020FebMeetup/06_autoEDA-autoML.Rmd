@@ -1,0 +1,95 @@
+---
+title: "AutoEDA/ML R Notebook"
+output: html_notebook
+---
+
+```{r}
+setwd("/..") # Enter appropriate path here
+getwd()
+```
+
+```{r}
+
+library(devtools)
+install.packages("RSQLite")
+devtools::install_github("XanderHorn/autoEDA")
+devtools::install_github("XanderHorn/autoML")
+install.packages("clValid")
+```
+
+```{r}
+# setup
+library(data.table)
+library(autoML)
+library(autoEDA)
+
+set.seed(42)
+options(scipen = 999)
+```
+
+```{r}
+# data...
+full <- fread("ks-projects-201801.csv",
+              data.table = FALSE,
+              stringsAsFactors = FALSE)
+
+full$binary <- ifelse(full$state %in% c("canceled","failed","suspended","undefined"), 0, 1)
+full$state <- NULL
+```
+
+```{r}
+str(full)
+```
+
+```{r}
+# work with a subset to save time
+res=autoPreProcess( train = full[101:10100, ],
+                    target = "binary",
+                    id = "ID")
+```
+```{r}
+# note different objects
+res
+```
+
+
+```{r}
+# train a model: using MLR, caret, etc
+models =  autoLearn(train = res$data,
+                    target = "binary",
+                    trainMode = "reduced",
+                    models = "xgboost",
+                    topFeatures = 10) # only train on top 10 most predictive features provided
+```
+
+```{r}
+code = modifyCode(trainedModel = models$trainedModels$XgBoost_reduced$model,
+                  edaFrame = res$dataSummary,
+                  codeFrame = res$code)
+```
+
+```{r}
+saveCode(codeFrame = code,
+         path = getwd(),
+         filename = "XgBoost_Top10")
+
+source("XgBoost_Top10.R")
+```
+
+```{r}
+preds = predict_autoML(trainedModel = models$trainedModels$XgBoost_reduced$model,
+                        x = full[1:100,])
+preds
+```
+
+```{r}
+# cluster data - unsupervised mode on a thousand observations
+clus = autoML(train = full[1:1000,],
+              id = "ID")
+```
+
+```{r}
+clus$result
+```
+
+
