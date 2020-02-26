@@ -1,0 +1,172 @@
+---
+title: "H2O Automl BOSTON"
+author: "DA"
+date: "March 10, 2018"
+revised: "February 26, 2020"
+---
+
+# Install Packages
+
+```{r}
+# Remove any previously installed H2O packages for R
+if ("package:h2o" %in% search()) { detach("package:h2o", unload=TRUE) }
+if ("h2o" %in% rownames(installed.packages())) { remove.packages("h2o") }
+
+# Download dependencies
+pkgs <- c("RCurl","jsonlite")
+for (pkg in pkgs) {
+if (! (pkg %in% rownames(installed.packages()))) { install.packages(pkg) }
+}
+
+# Install the latest open source H2O package (see https://www.h2o.ai/download/#h2o)
+install.packages("h2o", type="source", repos="http://h2o-release.s3.amazonaws.com/h2o/master/4970/R")
+```
+
+```{r}
+# Install package for sample datasets
+install.packages("mlbench")
+```
+
+# Load Packages
+
+```{r}
+# Libraries
+library(h2o) # H2O Machine Learning
+library(mlbench) # Datasets
+
+n_seed = 42 # seed for reproducibility and everything...
+```
+
+# Load and Check Data
+
+```{r}
+# load dataset from mlbench and display its structure
+bh = as.data.frame(BostonHousing) # simple, clean, classic dataset for regression 
+str(bh) # FACTOR = CATEGORICAL
+```
+
+```{r}
+# view a sample of the dataset
+
+tail(bh)
+```
+
+```{r}
+# check for missing values
+
+unlist(lapply(bh, function(x) any(is.na(x)))) 
+```
+
+```{r}
+# check for duplicate values
+
+which(duplicated(bh)) 
+```
+
+## Define the target to predict and the feature columns to use
+
+```{r}
+target = "medv" # Median House Value
+features = setdiff(colnames(bh), target)
+print(features)
+```
+
+## Initialise h2o
+
+```{r}
+# Start a local H2O cluster (JVM compute engine)
+
+h2o.init()
+h2o.no_progress() # disable progress bar for RMarkdown
+h2o.removeAll()   # delete objects from previous session (optional)
+```
+
+## convert R DF to h2o DF
+
+```{r}
+# H2O dataframe
+
+h2o_boston = as.h2o(bh)
+head(h2o_boston)
+```
+
+```{r}
+# Note H2O DF structure
+
+str(h2o_boston)
+```
+
+
+```{r}
+# Split Train/Test
+
+h_split = h2o.splitFrame(h2o_boston, ratios = 0.8, seed = n_seed)
+h_train = h_split[[1]] # 80% for modelling
+h_test = h_split[[2]] # 20% for evaluation
+```
+
+## AutoML - Train multiple models and a stacked ensemble
+
+```{r}
+# Train multiple H2O models with H2O AutoML
+# H2O DL algorithm on multi-core is stochastic
+
+model_automl = h2o.automl(x = features,
+                          y = target,
+                          training_frame = h_train,
+                          nfolds = 5,               # Cross-Validation
+                          max_runtime_secs = 300,   # Max time (5 mins)
+                          max_models = 100,         # Max no. of models
+                          stopping_metric = "RMSE", # Metric to optimize
+                          project_name = "automl_reg",
+                          exclude_algos = NULL,     # If you want to exclude any algorithms 
+                          seed = n_seed)
+```
+
+## View AutoML Leaderboard
+
+```{r}
+model_automl@leaderboard
+```
+
+## Best Performing Model
+
+```{r}
+# Best Model (from an individual algorithm or a stacked ensemble)
+
+model_automl@leader
+```
+
+## Evaluate Performance on unseen data
+
+```{r}
+# Remember lower value error metrics are better!
+
+h2o.performance(model_automl@leader, newdata = h_test) 
+```
+
+## Make Predictions 
+
+```{r}
+ypred_test = h2o.predict(model_automl@leader, h_test)
+head(ypred_test)
+```
+
+## Export Models 
+
+- `h2o.saveModel()` to persist model
+- `h2o.loadModel()` to re-load model
+- `h2o.download_mojo()` for model serving
+
+```{r, eval=FALSE}
+# Save model to disk
+
+h2o.saveModel(object = model_automl@leader, 
+              path = "./",
+              force = TRUE)
+```
+
+```{r}
+sessionInfo()
+```
+
